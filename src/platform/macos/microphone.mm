@@ -86,11 +86,12 @@ namespace platf {
     void release_mic_redirect_device() override {
     }
 
-    int write_mic_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp) override {
+    int write_mic_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp, std::uint64_t stream_generation) override {
       (void) data;
       (void) len;
       (void) sequence_number;
       (void) timestamp;
+      (void) stream_generation;
       return -1;
     }
 

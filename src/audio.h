@@ -152,9 +152,23 @@ namespace audio {
    * @examples_end
    */
   bool is_audio_ctx_sink_available(const audio_ctx_t &ctx);
-  int init_mic_redirect_device();
+
+  /**
+   * @brief Take a reference on the host microphone redirect device, opening it on first use.
+   * @return 0 on success. Only call `release_mic_redirect_device()` after a successful acquire.
+   */
+  int acquire_mic_redirect_device();
+
+  /**
+   * @brief Drop a reference taken by `acquire_mic_redirect_device()`; the last one closes the device.
+   */
   void release_mic_redirect_device();
-  int write_mic_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp);
+
+  /**
+   * @brief Queue one Opus frame of client microphone audio. Safe to call concurrently with acquire/release.
+   * @param stream_generation Identifies the client stream; a change discards audio buffered from the previous one.
+   */
+  int write_mic_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp, std::uint64_t stream_generation);
   mic_debug_snapshot_t get_mic_debug_snapshot();
   void mic_debug_on_session_start(const std::string &client_name, bool encryption_enabled);
   void mic_debug_on_session_stop(const std::string &reason = {});

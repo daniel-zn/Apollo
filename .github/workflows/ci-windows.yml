@@ -1,0 +1,96 @@
+---
+# Builds the Windows installer for this fork. Apollo upstream removed its CI in da5a4e3e;
+# this is its former ci-windows.yml, trimmed to build, test, and package.
+name: CI-Windows
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - mic-passthrough
+  workflow_dispatch:
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  build_windows:
+    name: Windows-AMD64
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ucrt64
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-boost
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-cppwinrt
+            mingw-w64-ucrt-x86_64-curl-winssl
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-MinHook
+            mingw-w64-ucrt-x86_64-miniupnpc
+            mingw-w64-ucrt-x86_64-nlohmann-json
+            mingw-w64-ucrt-x86_64-nodejs
+            mingw-w64-ucrt-x86_64-nsis
+            mingw-w64-ucrt-x86_64-onevpl
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-opus
+            mingw-w64-ucrt-x86_64-toolchain
+
+      - name: Build
+        env:
+          BRANCH: ${{ github.ref_name }}
+          BUILD_VERSION: "0.4.6"
+          COMMIT: ${{ github.sha }}
+        run: |
+          cmake \
+            -B build \
+            -G Ninja \
+            -S . \
+            -DBUILD_DOCS=OFF \
+            -DBUILD_TESTS=ON \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DSUNSHINE_ASSETS_DIR=assets \
+            -DSUNSHINE_PUBLISHER_NAME='${{ github.repository_owner }}' \
+            -DSUNSHINE_PUBLISHER_WEBSITE='https://github.com/${{ github.repository }}' \
+            -DSUNSHINE_PUBLISHER_ISSUE_URL='https://github.com/${{ github.repository }}/issues'
+          ninja -C build
+
+      - name: Microphone tests
+        working-directory: build/tests
+        run: ./test_sunshine.exe --gtest_color=yes --gtest_filter='Mic*'
+
+      - name: Full test suite (informational)
+        continue-on-error: true
+        working-directory: build/tests
+        run: ./test_sunshine.exe --gtest_color=yes
+
+      - name: Package
+        run: |
+          mkdir -p artifacts
+          cd build
+          cpack -G NSIS
+          cpack -G ZIP
+          ls cpack_artifacts
+          mv cpack_artifacts/*.exe ../artifacts/Apollo-mic-passthrough-installer.exe
+          mv cpack_artifacts/*.zip ../artifacts/Apollo-mic-passthrough-portable.zip
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Apollo-Windows-AMD64
+          path: artifacts/
+          if-no-files-found: error

@@ -174,18 +174,6 @@ namespace platf::audio {
       return static_cast<std::uint32_t>(newer - older);
     }
 
-    bool recover_device(mic_write_wasapi_t &writer, HRESULT status, const char *operation) {
-      if (!is_recoverable_device_error(status)) {
-        return false;
-      }
-
-      BOOST_LOG(warning) << "Microphone playback device needs reinitialization after failure while " << operation
-                         << ": 0x" << util::hex(status).to_string_view();
-
-      writer.cleanup();
-      return writer.init() == 0;
-    }
-
     std::vector<BYTE> make_recommended_steam_mic_device_waveformat() {
       WAVEFORMATEXTENSIBLE pcm_format {};
       pcm_format.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
@@ -272,7 +260,7 @@ namespace platf::audio {
       return info;
     }
 
-    bool ensure_recommended_steam_mic_format(const std::wstring &device_id, const std::string &target_device_name, EDataFlow flow) {
+    policy_t make_policy_config() {
       policy_t policy;
       auto status = CoCreateInstance(
         CLSID_CPolicyConfigClient,
@@ -284,35 +272,9 @@ namespace platf::audio {
       if (FAILED(status) || !policy) {
         BOOST_LOG(warning) << "Couldn't create audio policy config for Steam microphone format setup: 0x"
                            << util::hex(status).to_string_view();
-        return false;
+        return {};
       }
-
-      waveformat_t current_format;
-      status = policy->GetDeviceFormat(device_id.c_str(), false, &current_format);
-      if (FAILED(status) || !current_format) {
-        BOOST_LOG(warning) << "Couldn't query Steam microphone " << to_utf8(endpoint_label(flow)) << " device format for [" << target_device_name << "]: 0x"
-                           << util::hex(status).to_string_view();
-        return false;
-      }
-
-      if (is_recommended_steam_mic_device_format(current_format.get())) {
-        return true;
-      }
-
-      auto recommended_format_storage = make_recommended_steam_mic_device_waveformat();
-      auto *recommended_format = reinterpret_cast<WAVEFORMATEX *>(recommended_format_storage.data());
-      WAVEFORMATEXTENSIBLE previous_format {};
-      status = policy->SetDeviceFormat(device_id.c_str(), recommended_format, reinterpret_cast<WAVEFORMATEX *>(&previous_format));
-      if (FAILED(status)) {
-        BOOST_LOG(warning) << "Couldn't set Steam microphone " << to_utf8(endpoint_label(flow))
-                           << " device format to stereo 32-bit 48k for [" << target_device_name << "]: 0x"
-                           << util::hex(status).to_string_view();
-        return false;
-      }
-
-      BOOST_LOG(info) << "Changed Steam microphone " << to_utf8(endpoint_label(flow)) << " device format for [" << target_device_name
-                      << "] to [pcm, 32-bit, 48000 Hz, 2ch]";
-      return true;
+      return policy;
     }
 
     HRESULT initialize_shared_audio_client(IAudioClient *audio_client, const WAVEFORMATEX *format, DWORD stream_flags) {
@@ -438,8 +400,8 @@ namespace platf::audio {
       return false;
     }
 
-    const bool render_format_enforced = ensure_recommended_steam_mic_format(render_device_id, target_device_name, eRender);
-    const bool capture_format_enforced = ensure_recommended_steam_mic_format(capture_device_id, capture_device_name, eCapture);
+    const bool render_format_enforced = set_recommended_format(render_device_id, target_device_name, eRender);
+    const bool capture_format_enforced = set_recommended_format(capture_device_id, capture_device_name, eCapture);
     const auto render_endpoint_info = query_endpoint_format_info(device_enum.get(), render_device_id);
     const auto capture_endpoint_info = query_endpoint_format_info(device_enum.get(), capture_device_id);
     const bool recommended_format_active = render_endpoint_info.recommended_active && capture_endpoint_info.recommended_active;
@@ -580,7 +542,7 @@ namespace platf::audio {
     return 0;
   }
 
-  int mic_write_wasapi_t::write_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp) {
+  int mic_write_wasapi_t::write_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp, std::uint64_t generation) {
     if (!audio_client || audio_render == nullptr || opus_decoder == nullptr || data == nullptr || len == 0 || !render_event) {
       BOOST_LOG(warning) << "Client microphone packet rejected before decode because the WASAPI write path is not ready"
                          << " [seq=" << sequence_number
@@ -604,6 +566,21 @@ namespace platf::audio {
     bool trimmed_packet_queue = false;
     {
       std::lock_guard lock(queue_mutex);
+
+      // A different client stream (e.g. after a reconnect) restarts its sequence numbers,
+      // so drop everything buffered from the previous one and start playout fresh.
+      if (generation != stream_generation) {
+        if (stream_generation != 0) {
+          BOOST_LOG(info) << "Client microphone stream changed; resetting the jitter buffer for [" << target_device_name << ']';
+        }
+        stream_generation = generation;
+        pending_packets.clear();
+        pending_frames.clear();
+        has_playout_cursor = false;
+        expected_sequence_number = 0;
+        expected_timestamp = 0;
+        stream_reset_pending = true;
+      }
 
       if (has_playout_cursor) {
         const auto behind = sequence_distance(expected_sequence_number, sequence_number);
@@ -792,6 +769,8 @@ namespace platf::audio {
         break;
       }
 
+      apply_pending_stream_reset();
+
       const auto wait_result = WaitForSingleObject(render_event.get(), 20);
       if (stop_render_thread) {
         break;
@@ -920,6 +899,85 @@ namespace platf::audio {
     CoUninitialize();
   }
 
+  /**
+   * The Steam Streaming Microphone loops its render endpoint into its capture endpoint without
+   * converting formats, so both must use the same format or host applications hear garbage.
+   * Set both to stereo 32-bit 48 kHz while we render, and remember what they were so cleanup()
+   * can put them back.
+   */
+  bool mic_write_wasapi_t::set_recommended_format(const std::wstring &device_id, const std::string &device_name, EDataFlow flow) {
+    auto policy = make_policy_config();
+    if (!policy) {
+      return false;
+    }
+
+    waveformat_t current_format;
+    auto status = policy->GetDeviceFormat(device_id.c_str(), false, &current_format);
+    if (FAILED(status) || !current_format) {
+      BOOST_LOG(warning) << "Couldn't query Steam microphone " << to_utf8(endpoint_label(flow)) << " device format for [" << device_name << "]: 0x"
+                         << util::hex(status).to_string_view();
+      return false;
+    }
+
+    if (is_recommended_steam_mic_device_format(current_format.get())) {
+      return true;
+    }
+
+    const auto *previous = reinterpret_cast<const BYTE *>(current_format.get());
+    std::vector<BYTE> previous_format {previous, previous + sizeof(WAVEFORMATEX) + current_format->cbSize};
+
+    auto recommended_format_storage = make_recommended_steam_mic_device_waveformat();
+    auto *recommended_format = reinterpret_cast<WAVEFORMATEX *>(recommended_format_storage.data());
+    WAVEFORMATEXTENSIBLE mix_format {};
+    status = policy->SetDeviceFormat(device_id.c_str(), recommended_format, reinterpret_cast<WAVEFORMATEX *>(&mix_format));
+    if (FAILED(status)) {
+      BOOST_LOG(warning) << "Couldn't set Steam microphone " << to_utf8(endpoint_label(flow))
+                         << " device format to stereo 32-bit 48k for [" << device_name << "]: 0x"
+                         << util::hex(status).to_string_view();
+      return false;
+    }
+
+    saved_device_formats.push_back({device_id, device_name, std::move(previous_format)});
+    BOOST_LOG(info) << "Changed Steam microphone " << to_utf8(endpoint_label(flow)) << " device format for [" << device_name
+                    << "] from [" << waveformat_to_pretty_string(current_format.get()) << "] to [pcm, 32-bit, 48000 Hz, 2ch] for this session";
+    return true;
+  }
+
+  void mic_write_wasapi_t::restore_device_formats() {
+    if (saved_device_formats.empty()) {
+      return;
+    }
+
+    auto policy = make_policy_config();
+    for (auto &saved : saved_device_formats) {
+      auto *format = reinterpret_cast<WAVEFORMATEX *>(saved.format.data());
+      WAVEFORMATEXTENSIBLE mix_format {};
+      if (policy && SUCCEEDED(policy->SetDeviceFormat(saved.device_id.c_str(), format, reinterpret_cast<WAVEFORMATEX *>(&mix_format)))) {
+        BOOST_LOG(info) << "Restored Steam microphone device format for [" << saved.device_name << "] to [" << waveformat_to_pretty_string(format) << ']';
+      } else {
+        BOOST_LOG(warning) << "Couldn't restore Steam microphone device format for [" << saved.device_name << ']';
+      }
+    }
+    saved_device_formats.clear();
+  }
+
+  void mic_write_wasapi_t::apply_pending_stream_reset() {
+    {
+      std::lock_guard lock(queue_mutex);
+      if (!stream_reset_pending) {
+        return;
+      }
+      stream_reset_pending = false;
+    }
+
+    // Decoder and playout state belong to the render thread
+    if (opus_decoder != nullptr) {
+      opus_decoder_ctl(opus_decoder, OPUS_RESET_STATE);
+    }
+    playout_started = false;
+    playout_wait_logged = false;
+  }
+
   void mic_write_wasapi_t::cleanup() {
     stop_render_thread = true;
     if (render_event) {
@@ -940,6 +998,7 @@ namespace platf::audio {
     }
 
     audio_client.reset();
+    restore_device_formats();
     device_enum.reset();
 
     if (opus_decoder != nullptr) {
@@ -961,6 +1020,8 @@ namespace platf::audio {
     expected_sequence_number = 0;
     expected_timestamp = 0;
     has_playout_cursor = false;
+    stream_generation = 0;
+    stream_reset_pending = false;
     playout_started = false;
     playout_wait_logged = false;
   }

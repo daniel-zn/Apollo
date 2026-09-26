@@ -555,8 +555,9 @@ namespace platf {
         }
       }
 
-      int write_mic_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp) override {
+      int write_mic_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp, std::uint64_t stream_generation) override {
         (void) timestamp;
+        (void) stream_generation;
         if (!mic_redirect_device) {
           return -1;
         }

@@ -66,9 +66,20 @@ namespace audio {
       append_mic_event(state, status);
     }
 
-    audio_ctx_ref_t &mic_redirect_audio_ctx() {
-      static audio_ctx_ref_t ref;
-      return ref;
+    /**
+     * The microphone redirect device is shared by every session that negotiated a microphone.
+     * The mutex serializes opening, closing, and writing so the microphone receive thread can
+     * never write into a device another thread is tearing down.
+     */
+    struct mic_redirect_state_t {
+      std::mutex mutex;
+      audio_ctx_ref_t ctx;
+      int refs {};
+    };
+
+    mic_redirect_state_t &mic_redirect_state() {
+      static mic_redirect_state_t state;
+      return state;
     }
   }  // namespace
 
@@ -318,43 +329,54 @@ namespace audio {
     return ctx.control->is_sink_available(sink);
   }
 
-  int init_mic_redirect_device() {
-    auto &held_ref = mic_redirect_audio_ctx();
-    if (!held_ref) {
-      held_ref = get_audio_ctx_ref();
+  int acquire_mic_redirect_device() {
+    auto &state = mic_redirect_state();
+    std::lock_guard lock(state.mutex);
+
+    if (state.refs > 0) {
+      ++state.refs;
+      return 0;
     }
 
-    auto &ref = held_ref;
+    auto ref = get_audio_ctx_ref();
     if (!ref || !ref->control) {
       mic_debug_on_backend_error("Audio control is unavailable; microphone redirection could not initialize");
       return -1;
     }
 
-    return ref->control->init_mic_redirect_device();
-  }
-
-  void release_mic_redirect_device() {
-    auto &ref = mic_redirect_audio_ctx();
-    if (!ref || !ref->control) {
-      ref = {};
-      return;
-    }
-
-    ref->control->release_mic_redirect_device();
-    ref = {};
-  }
-
-  int write_mic_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp) {
-    auto &held_ref = mic_redirect_audio_ctx();
-    auto ref = held_ref ? held_ref : get_audio_ctx_ref();
-    if (!ref || !ref->control) {
-      BOOST_LOG(warning) << "Client microphone packet rejected before decode because audio control is unavailable"
-                         << " [seq=" << sequence_number << ", ts=" << timestamp << ", len=" << len << ']';
-      mic_debug_on_packet_dropped(sequence_number, "Audio control is unavailable while writing microphone data");
+    if (ref->control->init_mic_redirect_device() != 0) {
       return -1;
     }
 
-    return ref->control->write_mic_data(data, len, sequence_number, timestamp);
+    state.ctx = std::move(ref);
+    state.refs = 1;
+    return 0;
+  }
+
+  void release_mic_redirect_device() {
+    auto &state = mic_redirect_state();
+    std::lock_guard lock(state.mutex);
+
+    if (state.refs == 0 || --state.refs > 0) {
+      return;
+    }
+
+    if (state.ctx && state.ctx->control) {
+      state.ctx->control->release_mic_redirect_device();
+    }
+    state.ctx = {};
+  }
+
+  int write_mic_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp, std::uint64_t stream_generation) {
+    auto &state = mic_redirect_state();
+    std::lock_guard lock(state.mutex);
+
+    if (state.refs == 0 || !state.ctx || !state.ctx->control) {
+      mic_debug_on_packet_dropped(sequence_number, "No microphone redirect device is open");
+      return -1;
+    }
+
+    return state.ctx->control->write_mic_data(data, len, sequence_number, timestamp, stream_generation);
   }
 
   mic_debug_snapshot_t get_mic_debug_snapshot() {

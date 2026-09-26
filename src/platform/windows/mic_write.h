@@ -47,7 +47,7 @@ namespace platf::audio {
 
     std::string_view backend_id() const override;
     int init() override;
-    int write_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp) override;
+    int write_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp, std::uint64_t stream_generation) override;
     void cleanup();
 
   private:
@@ -58,6 +58,18 @@ namespace platf::audio {
     std::uint32_t infer_packet_duration_samples(std::uint32_t current_timestamp, std::uint32_t next_timestamp) const;
     bool should_conceal_missing_packet_locked() const;
     void append_decoded_frames(const float *samples, int decoded_frames, std::uint16_t sequence_number);
+    void apply_pending_stream_reset();
+    bool set_recommended_format(const std::wstring &device_id, const std::string &device_name, EDataFlow flow);
+    void restore_device_formats();
+
+    /**
+     * @brief A Steam microphone endpoint whose device format we changed, and what it was before.
+     */
+    struct saved_device_format_t {
+      std::wstring device_id;
+      std::string device_name;
+      std::vector<BYTE> format;
+    };
 
     util::safe_ptr<IMMDeviceEnumerator, release_com<IMMDeviceEnumerator>> device_enum;
     util::safe_ptr<IAudioClient, release_com<IAudioClient>> audio_client;
@@ -80,7 +92,10 @@ namespace platf::audio {
     std::uint16_t expected_sequence_number = 0;
     std::uint32_t expected_timestamp = 0;
     bool has_playout_cursor = false;
-    bool playout_started = false;
-    bool playout_wait_logged = false;
+    std::uint64_t stream_generation = 0;  ///< Guarded by queue_mutex.
+    bool stream_reset_pending = false;  ///< Guarded by queue_mutex; applied by the render thread.
+    bool playout_started = false;  ///< Render thread only.
+    bool playout_wait_logged = false;  ///< Render thread only.
+    std::vector<saved_device_format_t> saved_device_formats;
   };
 }  // namespace platf::audio

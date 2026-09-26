@@ -559,9 +559,20 @@ namespace platf {
 
     virtual std::unique_ptr<mic_t> microphone(const std::uint8_t *mapping, int channels, std::uint32_t sample_rate, std::uint32_t frame_size) = 0;
 
+    /**
+     * @brief Open the host device that client microphone audio is rendered into.
+     * @return 0 on success.
+     */
     virtual int init_mic_redirect_device() = 0;
     virtual void release_mic_redirect_device() = 0;
-    virtual int write_mic_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp) = 0;
+
+    /**
+     * @brief Queue one Opus frame of client microphone audio.
+     * @param stream_generation Identifies the client stream. When it changes, any buffered
+     *        audio and decoder state from the previous stream is discarded.
+     * @return A negative value if the frame was rejected.
+     */
+    virtual int write_mic_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp, std::uint64_t stream_generation) = 0;
 
     /**
      * @brief Check if the audio sink is available in the system.

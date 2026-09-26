@@ -5,6 +5,7 @@
 #define INITGUID
 
 // standard includes
+#include <array>
 #include <format>
 #include <vector>
 
@@ -823,16 +824,10 @@ namespace platf::audio {
         return true;
       };
 
+      // The driver itself is installed when audio control starts (see platf::audio_control()),
+      // not here, because this runs while a client is waiting for its session to start.
       if (try_create_device()) {
         return 0;
-      }
-
-      if (config::audio.install_steam_drivers) {
-        BOOST_LOG(info) << "Attempting to install missing Steam audio drivers for microphone redirection"sv;
-        install_steam_audio_drivers();
-        if (try_create_device()) {
-          return 0;
-        }
       }
 
       BOOST_LOG(warning) << "Client microphone redirection is unavailable because Steam Streaming Microphone is not installed or not accessible. "
@@ -846,14 +841,13 @@ namespace platf::audio {
       active_mic_backend.clear();
     }
 
-    int write_mic_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp) override {
+    // Callers serialize this with init/release (see audio::write_mic_data())
+    int write_mic_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp, std::uint64_t stream_generation) override {
       if (!mic_redirect_device) {
-        BOOST_LOG(warning) << "Client microphone packet rejected before decode because no Windows microphone redirect device is active"
-                          << " [seq=" << sequence_number << ", ts=" << timestamp << ", len=" << len << ']';
         return -1;
       }
 
-      return mic_redirect_device->write_data(data, len, sequence_number, timestamp);
+      return mic_redirect_device->write_data(data, len, sequence_number, timestamp, stream_generation);
     }
 
     /**
@@ -1123,7 +1117,45 @@ namespace platf::audio {
       BOOST_LOG(info) << "Successfully reset default audio device"sv;
     }
 
-    bool install_driver_from_local_steam_inf(const wchar_t *driver_path_template, std::wstring_view driver_name, bool restore_default_output_device) {
+    using default_endpoints_t = std::array<std::wstring, ERole_enum_count>;
+
+    /**
+     * @brief Record the default endpoint of each role for a data flow.
+     */
+    default_endpoints_t snapshot_default_endpoints(EDataFlow flow) {
+      default_endpoints_t endpoints;
+      for (int x = 0; x < (int) ERole_enum_count; ++x) {
+        audio::device_t device;
+        if (FAILED(device_enum->GetDefaultAudioEndpoint(flow, (ERole) x, &device)) || !device) {
+          continue;
+        }
+
+        audio::wstring_t id;
+        if (SUCCEEDED(device->GetId(&id)) && id) {
+          endpoints[x] = id.get();
+        }
+      }
+      return endpoints;
+    }
+
+    /**
+     * @brief Put back default endpoints recorded by `snapshot_default_endpoints()` if they changed.
+     */
+    void restore_default_endpoints(EDataFlow flow, const default_endpoints_t &endpoints) {
+      const auto current = snapshot_default_endpoints(flow);
+      for (int x = 0; x < (int) ERole_enum_count; ++x) {
+        if (endpoints[x].empty() || endpoints[x] == current[x]) {
+          continue;
+        }
+
+        if (SUCCEEDED(policy->SetDefaultEndpoint(endpoints[x].c_str(), (ERole) x))) {
+          BOOST_LOG(info) << "Restored the default "sv << (flow == eCapture ? "recording"sv : "playback"sv)
+                          << " device after a Steam audio driver install"sv;
+        }
+      }
+    }
+
+    bool install_driver_from_local_steam_inf(const wchar_t *driver_path_template, std::wstring_view driver_name) {
 #ifdef STEAM_DRIVER_SUBDIR
       // MinGW's libnewdev.a is missing DiInstallDriverW() even though the headers have it,
       // so we have to load it at runtime. It's Vista or later, so it will always be available.
@@ -1142,10 +1174,9 @@ namespace platf::audio {
         return false;
       }
 
-      audio::device_t old_default_dev;
-      if (restore_default_output_device) {
-        old_default_dev = default_device(device_enum);
-      }
+      // Installing a Steam audio driver can make its endpoints the system defaults
+      const auto old_default_render = snapshot_default_endpoints(eRender);
+      const auto old_default_capture = snapshot_default_endpoints(eCapture);
 
       WCHAR driver_path[MAX_PATH] = {};
       ExpandEnvironmentStringsW(driver_path_template, driver_path, ARRAYSIZE(driver_path));
@@ -1156,16 +1187,8 @@ namespace platf::audio {
         // modifying the default audio device or enumerating devices again.
         Sleep(5000);
 
-        if (restore_default_output_device && old_default_dev) {
-          // If there was a previous default device, restore that original device as the
-          // default output device just in case installing the new one changed it.
-          audio::wstring_t old_default_id;
-          old_default_dev->GetId(&old_default_id);
-
-          for (int x = 0; x < (int) ERole_enum_count; ++x) {
-            policy->SetDefaultEndpoint(old_default_id.get(), (ERole) x);
-          }
-        }
+        restore_default_endpoints(eRender, old_default_render);
+        restore_default_endpoints(eCapture, old_default_capture);
 
         return true;
       } else {
@@ -1195,11 +1218,12 @@ namespace platf::audio {
       bool ok = true;
 
       if (!find_device_id(match_steam_speakers())) {
-        ok = install_driver_from_local_steam_inf(STEAM_SPEAKERS_DRIVER_PATH, L"Steam Streaming Speakers", true) && ok;
+        ok = install_driver_from_local_steam_inf(STEAM_SPEAKERS_DRIVER_PATH, L"Steam Streaming Speakers") && ok;
       }
 
-      if (!find_device_id(match_steam_microphone())) {
-        ok = install_driver_from_local_steam_inf(STEAM_MICROPHONE_DRIVER_PATH, L"Steam Streaming Microphone", false) && ok;
+      // The microphone driver is only needed for client microphone passthrough
+      if (config::audio.stream_mic && !find_device_id(match_steam_microphone())) {
+        ok = install_driver_from_local_steam_inf(STEAM_MICROPHONE_DRIVER_PATH, L"Steam Streaming Microphone") && ok;
       }
 
       return ok;
@@ -1265,7 +1289,7 @@ namespace platf {
     // the sink information returned includes the new Steam endpoints before any later enumeration.
     if (config::audio.install_steam_drivers &&
         (!control->find_device_id(control->match_steam_speakers()) ||
-         !control->find_device_id(control->match_steam_microphone()))) {
+         (config::audio.stream_mic && !control->find_device_id(control->match_steam_microphone())))) {
       // This is best effort. Don't fail if it doesn't work.
       control->install_steam_audio_drivers();
     }

@@ -794,11 +794,6 @@ namespace rtsp_stream {
     uint32_t encryption_flags_supported = SS_ENC_CONTROL_V2 | SS_ENC_AUDIO;
     uint32_t encryption_flags_requested = SS_ENC_CONTROL_V2;
 
-    if (config::audio.stream_mic) {
-      encryption_flags_supported |= SS_ENC_MICROPHONE;
-      encryption_flags_requested |= SS_ENC_MICROPHONE;
-    }
-
     // Determine the encryption desired for this remote endpoint
     auto encryption_mode = net::encryption_mode_for_address(sock.remote_endpoint().address());
     if (encryption_mode != config::ENCRYPTION_MODE_NEVER) {
@@ -835,9 +830,8 @@ namespace rtsp_stream {
     }
 
     if (config::audio.stream_mic) {
-      ss << "m=audio " << net::map_port(stream::MIC_STREAM_PORT) << " RTP/AVP 96" << std::endl;
-      ss << "a=rtpmap:96 opus/48000/1"sv << std::endl;
-      ss << "a=fmtp:96 minptime=10;useinbandfec=1"sv << std::endl;
+      // Microphone packets are always AES-GCM authenticated; see MIC_SDP_ATTRIBUTE
+      ss << MIC_SDP_ATTRIBUTE << std::endl;
     }
 
     for (int x = 0; x < audio::MAX_STREAM_CONFIG; ++x) {
@@ -1168,14 +1162,6 @@ namespace rtsp_stream {
 
       respond(sock, session, &option, 403, "Forbidden", req->sequenceNumber, {});
       return;
-    }
-
-    if (session.enable_mic &&
-        !(config.encryptionFlagsEnabled & SS_ENC_MICROPHONE)) {
-      BOOST_LOG(warning) << "Disabling microphone redirection for ["sv << session.device_name
-                         << "] because the client did not negotiate microphone encryption";
-      audio::mic_debug_on_session_stop("Microphone redirection requires encrypted transport. This client negotiated plaintext microphone packets, so mic passthrough was disabled for the session.");
-      session.enable_mic = false;
     }
 
     auto stream_session = stream::session::alloc(config, session);
