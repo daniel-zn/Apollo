@@ -166,8 +166,8 @@ namespace platf::audio {
              status == AUDCLNT_E_SERVICE_NOT_RUNNING;
     }
 
-    std::uint16_t sequence_distance(std::uint16_t newer, std::uint16_t older) {
-      return static_cast<std::uint16_t>(newer - older);
+    std::uint32_t sequence_distance(std::uint32_t newer, std::uint32_t older) {
+      return newer - older;
     }
 
     std::uint32_t timestamp_distance(std::uint32_t newer, std::uint32_t older) {
@@ -516,6 +516,7 @@ namespace platf::audio {
     }
 
     stop_render_thread = false;
+    render_failed = false;
     render_thread = std::thread {[this]() { render_loop(); }};
 
     return true;
@@ -546,7 +547,23 @@ namespace platf::audio {
     return 0;
   }
 
-  int mic_write_wasapi_t::write_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp, std::uint64_t generation) {
+  int mic_write_wasapi_t::write_data(const char *data, std::size_t len, std::uint32_t sequence_number, std::uint32_t timestamp, std::uint64_t generation) {
+    // Windows invalidated the device (e.g. the audio service restarted); reopen it. Callers
+    // serialize write_data with init and release, so it's safe to rebuild the device here.
+    if (render_failed) {
+      const auto now = std::chrono::steady_clock::now();
+      if (now - last_recovery_attempt < std::chrono::seconds(2)) {
+        return -1;
+      }
+      last_recovery_attempt = now;
+      BOOST_LOG(info) << "Reopening the Steam microphone playback device after it was invalidated";
+      cleanup();
+      if (init() != 0) {
+        render_failed = true;
+        return -1;
+      }
+    }
+
     if (!audio_client || audio_render == nullptr || opus_decoder == nullptr || data == nullptr || len == 0 || !render_event) {
       BOOST_LOG(warning) << "Client microphone packet rejected before decode because the WASAPI write path is not ready"
                          << " [seq=" << sequence_number
@@ -588,7 +605,7 @@ namespace platf::audio {
 
       if (has_playout_cursor) {
         const auto behind = sequence_distance(expected_sequence_number, sequence_number);
-        if (behind != 0 && behind < 0x8000) {
+        if (behind != 0 && behind < 0x80000000u) {
           stale_packet = true;
         }
       }
@@ -641,15 +658,15 @@ namespace platf::audio {
       return false;
     }
 
-    if (pending_packets.find(static_cast<std::uint16_t>(expected_sequence_number + 1)) != pending_packets.end()) {
+    if (pending_packets.find(expected_sequence_number + 1) != pending_packets.end()) {
       return true;
     }
 
     const auto delta = sequence_distance(pending_packets.begin()->first, expected_sequence_number);
-    return delta != 0 && delta < 0x8000;
+    return delta != 0 && delta < 0x80000000u;
   }
 
-  void mic_write_wasapi_t::append_decoded_frames(const float *samples, int decoded_frames, std::uint16_t sequence_number) {
+  void mic_write_wasapi_t::append_decoded_frames(const float *samples, int decoded_frames, std::uint32_t sequence_number) {
     if (samples == nullptr || decoded_frames <= 0) {
       return;
     }
@@ -677,7 +694,7 @@ namespace platf::audio {
 
   bool mic_write_wasapi_t::decode_next_packet() {
     queued_mic_packet_t packet;
-    std::uint16_t packet_sequence = 0;
+    std::uint32_t packet_sequence = 0;
     std::uint32_t frame_duration_samples = default_packet_duration_samples;
     bool decode_fec = false;
     bool decode_plc = false;
@@ -704,7 +721,7 @@ namespace platf::audio {
 
         packet = std::move(current->second);
         pending_packets.erase(current);
-      } else if (auto next = pending_packets.find(static_cast<std::uint16_t>(expected_sequence_number + 1)); next != pending_packets.end()) {
+      } else if (auto next = pending_packets.find(expected_sequence_number + 1); next != pending_packets.end()) {
         frame_duration_samples = infer_packet_duration_samples(expected_timestamp, next->second.timestamp);
         packet = next->second;
         decode_fec = true;
@@ -757,7 +774,7 @@ namespace platf::audio {
 
     {
       std::lock_guard lock(queue_mutex);
-      expected_sequence_number = static_cast<std::uint16_t>(expected_sequence_number + 1);
+      expected_sequence_number++;
       expected_timestamp += static_cast<std::uint32_t>(decoded_frames);
     }
 
@@ -791,7 +808,8 @@ namespace platf::audio {
         BOOST_LOG(debug) << "Couldn't query microphone playback padding for [" << target_device_name << "]: 0x"
                          << util::hex(status).to_string_view();
         if (is_recoverable_device_error(status)) {
-          ::audio::mic_debug_on_backend_error("Steam microphone playback device was invalidated during rendering. Restart the stream.");
+          ::audio::mic_debug_on_backend_error("Steam microphone playback device was invalidated during rendering. Reopening it.");
+          render_failed = true;
           break;
         }
         continue;
@@ -872,7 +890,8 @@ namespace platf::audio {
         BOOST_LOG(debug) << "Couldn't acquire microphone playback buffer for [" << target_device_name << "]: 0x"
                          << util::hex(status).to_string_view();
         if (FAILED(status) && is_recoverable_device_error(status)) {
-          ::audio::mic_debug_on_backend_error("Steam microphone playback device was invalidated while acquiring a render buffer. Restart the stream.");
+          ::audio::mic_debug_on_backend_error("Steam microphone playback device was invalidated while acquiring a render buffer. Reopening it.");
+          render_failed = true;
           break;
         }
         continue;
@@ -894,7 +913,8 @@ namespace platf::audio {
         BOOST_LOG(debug) << "Couldn't release microphone playback buffer for [" << target_device_name << "]: 0x"
                          << util::hex(status).to_string_view();
         if (is_recoverable_device_error(status)) {
-          ::audio::mic_debug_on_backend_error("Steam microphone playback device was invalidated while releasing a render buffer. Restart the stream.");
+          ::audio::mic_debug_on_backend_error("Steam microphone playback device was invalidated while releasing a render buffer. Reopening it.");
+          render_failed = true;
           break;
         }
       }

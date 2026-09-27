@@ -168,7 +168,7 @@ namespace audio {
    * @brief Queue one Opus frame of client microphone audio. Safe to call concurrently with acquire/release.
    * @param stream_generation Identifies the client stream; a change discards audio buffered from the previous one.
    */
-  int write_mic_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp, std::uint64_t stream_generation);
+  int write_mic_data(const char *data, std::size_t len, std::uint32_t sequence_number, std::uint32_t timestamp, std::uint64_t stream_generation);
   mic_debug_snapshot_t get_mic_debug_snapshot();
   void mic_debug_on_session_start(const std::string &client_name, bool encryption_enabled);
   void mic_debug_on_session_stop(const std::string &reason = {});

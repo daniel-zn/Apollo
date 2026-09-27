@@ -358,6 +358,7 @@ namespace stream {
     mic::replay_window_t replay;
     std::uint64_t generation;  ///< Unique per session; identifies the client stream to the audio backend.
     std::string device_name;
+    asio::ip::address peer_address;  ///< Normalized client address, set before the session is published.
     bool first_packet_logged {};
   };
 
@@ -1385,7 +1386,7 @@ namespace stream {
         for (auto *stream_session : *ctx.control_server._sessions) {
           if (stream_session->state.load(std::memory_order_acquire) != session::state_e::RUNNING ||
               !stream_session->audio.mic ||
-              net::normalize_address(stream_session->audio.peer.address()) != peer_address) {
+              stream_session->audio.mic->peer_address != peer_address) {
             continue;
           }
 
@@ -1449,7 +1450,7 @@ namespace stream {
                         << "] with "sv << packet->opus.size() << " bytes of Opus"sv;
       }
 
-      if (audio::write_mic_data(reinterpret_cast<const char *>(packet->opus.data()), packet->opus.size(), sequence_number, packet->timestamp, mic->generation) < 0) {
+      if (audio::write_mic_data(reinterpret_cast<const char *>(packet->opus.data()), packet->opus.size(), packet->counter, packet->timestamp, mic->generation) < 0) {
         BOOST_LOG(verbose) << "Dropping microphone packet for ["sv << mic->device_name << ']';
         audio::mic_debug_on_packet_dropped(sequence_number, "Host microphone render path rejected the packet");
       }
@@ -2265,6 +2266,7 @@ namespace stream {
 
       // Set up the microphone before the session is visible to the microphone receive thread
       if (session.audio.mic) {
+        session.audio.mic->peer_address = net::normalize_address(boost::asio::ip::make_address(addr_string));
         audio::mic_debug_on_session_start(session.device_name, true);
         if (audio::acquire_mic_redirect_device() != 0) {
           session.audio.mic.reset();

@@ -572,7 +572,7 @@ namespace platf {
      *        audio and decoder state from the previous stream is discarded.
      * @return A negative value if the frame was rejected.
      */
-    virtual int write_mic_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp, std::uint64_t stream_generation) = 0;
+    virtual int write_mic_data(const char *data, std::size_t len, std::uint32_t sequence_number, std::uint32_t timestamp, std::uint64_t stream_generation) = 0;
 
     /**
      * @brief Check if the audio sink is available in the system.

@@ -69,7 +69,7 @@ The canonical definition is next to `MIC_SDP_ATTRIBUTE` in `third-party/moonligh
   Steam Streaming Microphone driver if it's missing. It saves the default playback and recording devices for
   every role before the install and puts them back afterwards.
 - **Device loss:** if Windows invalidates the Steam microphone endpoint mid-stream (for example, the audio
-  service restarts), rendering stops until the client reconnects.
+  service restarts), Apollo reopens it when the next packet arrives, at most every 2 seconds.
 
 ## Key files
 

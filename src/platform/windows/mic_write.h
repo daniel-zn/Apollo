@@ -35,7 +35,7 @@ namespace platf::audio {
   public:
     struct queued_mic_packet_t {
       std::vector<std::uint8_t> payload;
-      std::uint16_t sequence_number {};
+      std::uint32_t sequence_number {};
       std::uint32_t timestamp {};
       std::chrono::steady_clock::time_point arrival_time {};
     };
@@ -47,7 +47,7 @@ namespace platf::audio {
 
     std::string_view backend_id() const override;
     int init() override;
-    int write_data(const char *data, std::size_t len, std::uint16_t sequence_number, std::uint32_t timestamp, std::uint64_t stream_generation) override;
+    int write_data(const char *data, std::size_t len, std::uint32_t sequence_number, std::uint32_t timestamp, std::uint64_t stream_generation) override;
     void cleanup();
 
   private:
@@ -59,7 +59,7 @@ namespace platf::audio {
     bool decode_next_packet();
     std::uint32_t infer_packet_duration_samples(std::uint32_t current_timestamp, std::uint32_t next_timestamp) const;
     bool should_conceal_missing_packet_locked() const;
-    void append_decoded_frames(const float *samples, int decoded_frames, std::uint16_t sequence_number);
+    void append_decoded_frames(const float *samples, int decoded_frames, std::uint32_t sequence_number);
     void apply_pending_stream_reset();
     bool set_recommended_format(const std::wstring &device_id, const std::string &device_name, EDataFlow flow);
     void restore_device_formats();
@@ -87,11 +87,13 @@ namespace platf::audio {
     bool first_packet_written_logged = false;
     util::safe_ptr_v2<void, BOOL, CloseHandle> render_event;
     std::mutex queue_mutex;
-    std::map<std::uint16_t, queued_mic_packet_t> pending_packets;
+    std::map<std::uint32_t, queued_mic_packet_t> pending_packets;  ///< Keyed by the 32-bit packet counter, which doesn't wrap in practice
     std::deque<float> pending_frames;
     std::thread render_thread;
     std::atomic<bool> stop_render_thread {false};
-    std::uint16_t expected_sequence_number = 0;
+    std::atomic<bool> render_failed {false};  ///< Set by the render thread when Windows invalidates the device
+    std::chrono::steady_clock::time_point last_recovery_attempt {};
+    std::uint32_t expected_sequence_number = 0;
     std::uint32_t expected_timestamp = 0;
     bool has_playout_cursor = false;
     std::uint64_t stream_generation = 0;  ///< Guarded by queue_mutex.
