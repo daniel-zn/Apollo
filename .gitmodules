@@ -62,7 +62,6 @@
 	path = third-party/wlr-protocols
 	url = https://gitlab.freedesktop.org/wlroots/wlr-protocols.git
 	branch = master
-[submodule "third-party/moonlight-common-c"]
-	path = third-party/moonlight-common-c
-	url = https://github.com/daniel-zn/moonlight-common-c
-	branch = apollo-mic-passthrough
+[submodule "third-party/moonlight-common-c/enet"]
+	path = third-party/moonlight-common-c/enet
+	url = https://github.com/cgutman/enet.git
