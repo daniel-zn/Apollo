@@ -89,8 +89,7 @@ namespace stream {
 
   enum class socket_e : int {
     video,  ///< Video
-    audio,  ///< Audio
-    microphone  ///< Microphone
+    audio  ///< Audio
   };
 
 #pragma pack(push, 1)
