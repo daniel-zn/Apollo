@@ -59,6 +59,9 @@ The canonical definition is next to `MIC_SDP_ATTRIBUTE` in `third-party/moonligh
 - **Disabled endpoints:** Steam (or the Sound settings) often leaves `Speakers (Steam Streaming Microphone)`
   disabled while nothing is streaming, and a disabled endpoint can't be opened. Apollo enables it while the device
   is open and disables it again afterwards.
+- **Game audio:** Apollo streams game audio through Steam Streaming Speakers. If Steam left that endpoint
+  disabled, Apollo enables it when a stream starts, and it treats a disabled Steam endpoint as installed instead
+  of trying to reinstall the driver.
 - **Device format:** the Steam driver doesn't convert between its playback and recording endpoints, so both
   must use the same format. While the device is open, Apollo sets both to `2ch, 32-bit, 48000 Hz` and restores
   the previous formats when it closes.

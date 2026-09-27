@@ -726,6 +726,11 @@ namespace platf::audio {
         match_list = match_all_fields(from_utf8(config::audio.virtual_sink));
       }
 
+      // Steam disables its streaming speakers while it isn't streaming itself
+      if (config::audio.virtual_sink.empty()) {
+        enable_disabled_endpoint(match_list);
+      }
+
       // Search for the virtual audio sink device currently present in the system.
       auto matched = find_device_id(match_list);
       if (matched) {
@@ -986,13 +991,13 @@ namespace platf::audio {
      * @param match_list Pairs of match fields and values
      * @return Optional pair of matched field and device_id
      */
-    std::optional<matched_field_t> find_device_id(const match_fields_list_t &match_list) {
+    std::optional<matched_field_t> find_device_id(const match_fields_list_t &match_list, DWORD state_mask = DEVICE_STATE_ACTIVE) {
       if (match_list.empty()) {
         return std::nullopt;
       }
 
       collection_t collection;
-      auto status = device_enum->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &collection);
+      auto status = device_enum->EnumAudioEndpoints(eRender, state_mask, &collection);
       if (FAILED(status)) {
         BOOST_LOG(error) << "Couldn't enumerate: [0x"sv << util::hex(status).to_string_view() << ']';
         return std::nullopt;
@@ -1055,6 +1060,33 @@ namespace platf::audio {
       }
 
       return std::nullopt;
+    }
+
+    /**
+     * @brief Enable a disabled playback endpoint that matches the list, if no active one does.
+     * A disabled endpoint (Sound settings > Disable, which Steam also does to its streaming
+     * speakers) can't be used as the virtual sink.
+     */
+    void enable_disabled_endpoint(const match_fields_list_t &match_list) {
+      if (find_device_id(match_list)) {
+        return;
+      }
+
+      auto disabled = find_device_id(match_list, DEVICE_STATE_DISABLED);
+      if (!disabled) {
+        return;
+      }
+
+      if (FAILED(policy->SetEndpointVisibility(disabled->second.c_str(), TRUE))) {
+        BOOST_LOG(warning) << "Couldn't enable disabled audio endpoint "sv << to_utf8(disabled->second);
+        return;
+      }
+
+      // The endpoint takes a moment to show up as active
+      for (int attempt = 0; attempt < 30 && !find_device_id(match_list); ++attempt) {
+        Sleep(100);
+      }
+      BOOST_LOG(info) << "Enabled disabled audio endpoint "sv << to_utf8(disabled->second);
     }
 
     /**
@@ -1217,12 +1249,12 @@ namespace platf::audio {
     bool install_steam_audio_drivers() {
       bool ok = true;
 
-      if (!find_device_id(match_steam_speakers())) {
+      if (!find_device_id(match_steam_speakers(), DEVICE_STATE_ACTIVE | DEVICE_STATE_DISABLED)) {
         ok = install_driver_from_local_steam_inf(STEAM_SPEAKERS_DRIVER_PATH, L"Steam Streaming Speakers") && ok;
       }
 
       // The microphone driver is only needed for client microphone passthrough
-      if (config::audio.stream_mic && !find_device_id(match_steam_microphone())) {
+      if (config::audio.stream_mic && !find_device_id(match_steam_microphone(), DEVICE_STATE_ACTIVE | DEVICE_STATE_DISABLED)) {
         ok = install_driver_from_local_steam_inf(STEAM_MICROPHONE_DRIVER_PATH, L"Steam Streaming Microphone") && ok;
       }
 
@@ -1288,8 +1320,8 @@ namespace platf {
     // Install Steam Streaming audio drivers if needed. We do this during audio_control() to ensure
     // the sink information returned includes the new Steam endpoints before any later enumeration.
     if (config::audio.install_steam_drivers &&
-        (!control->find_device_id(control->match_steam_speakers()) ||
-         (config::audio.stream_mic && !control->find_device_id(control->match_steam_microphone())))) {
+        (!control->find_device_id(control->match_steam_speakers(), DEVICE_STATE_ACTIVE | DEVICE_STATE_DISABLED) ||
+         (config::audio.stream_mic && !control->find_device_id(control->match_steam_microphone(), DEVICE_STATE_ACTIVE | DEVICE_STATE_DISABLED)))) {
       // This is best effort. Don't fail if it doesn't work.
       control->install_steam_audio_drivers();
     }
