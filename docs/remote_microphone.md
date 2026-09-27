@@ -56,6 +56,9 @@ The canonical definition is next to `MIC_SDP_ATTRIBUTE` in `third-party/moonligh
   next session that sends audio claims it. Switching streams clears the jitter buffer and resets the decoder.
 - **Lifetime:** the Steam microphone device opens when the first microphone session starts and closes when the
   last one ends. Opening, closing, and writing are serialized, so a packet can't reach a device being torn down.
+- **Disabled endpoints:** Steam (or the Sound settings) often leaves `Speakers (Steam Streaming Microphone)`
+  disabled while nothing is streaming, and a disabled endpoint can't be opened. Apollo enables it while the device
+  is open and disables it again afterwards.
 - **Device format:** the Steam driver doesn't convert between its playback and recording endpoints, so both
   must use the same format. While the device is open, Apollo sets both to `2ch, 32-bit, 48000 Hz` and restores
   the previous formats when it closes.

@@ -306,9 +306,9 @@ namespace platf::audio {
     return backend_name;
   }
 
-  bool mic_write_wasapi_t::find_target_device(EDataFlow flow, std::wstring &device_id, std::string &device_name) {
+  bool mic_write_wasapi_t::find_target_device(EDataFlow flow, std::wstring &device_id, std::string &device_name, DWORD state_mask) {
     collection_t collection;
-    HRESULT status = device_enum->EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE, &collection);
+    HRESULT status = device_enum->EnumAudioEndpoints(flow, state_mask, &collection);
     if (FAILED(status) || !collection) {
       BOOST_LOG(error) << "Couldn't enumerate " << to_utf8(endpoint_label(flow))
                        << " devices for microphone redirection: 0x" << util::hex(status).to_string_view();
@@ -379,6 +379,10 @@ namespace platf::audio {
   }
 
   bool mic_write_wasapi_t::initialize_device() {
+    // Steam (or the user) often leaves these endpoints disabled while nothing is streaming
+    enable_disabled_target_device(eRender);
+    enable_disabled_target_device(eCapture);
+
     std::wstring render_device_id;
     if (!find_target_device(eRender, render_device_id, target_device_name)) {
       if (requested_device_name.empty()) {
@@ -961,6 +965,55 @@ namespace platf::audio {
     saved_device_formats.clear();
   }
 
+  /**
+   * A disabled endpoint (Sound settings > Disable, which Steam also does to its streaming devices)
+   * can't be opened. Enable the Steam microphone endpoint for this session and remember it, so
+   * cleanup() can disable it again and leave the user's device list as it was.
+   */
+  void mic_write_wasapi_t::enable_disabled_target_device(EDataFlow flow) {
+    std::wstring device_id;
+    std::string device_name;
+    if (!find_target_device(flow, device_id, device_name, DEVICE_STATE_DISABLED)) {
+      return;
+    }
+
+    auto policy = make_policy_config();
+    if (!policy || FAILED(policy->SetEndpointVisibility(device_id.c_str(), TRUE))) {
+      BOOST_LOG(warning) << "Couldn't enable disabled Steam microphone " << to_utf8(endpoint_label(flow)) << " endpoint [" << device_name << ']';
+      return;
+    }
+
+    reenabled_endpoints.push_back(device_id);
+    BOOST_LOG(info) << "Enabled disabled Steam microphone " << to_utf8(endpoint_label(flow)) << " endpoint [" << device_name << "] for this session";
+
+    // The endpoint takes a moment to show up as active
+    std::wstring active_id;
+    std::string active_name;
+    for (int attempt = 0; attempt < 30; ++attempt) {
+      if (find_target_device(flow, active_id, active_name) && active_id == device_id) {
+        return;
+      }
+      Sleep(100);
+    }
+    BOOST_LOG(warning) << "Steam microphone " << to_utf8(endpoint_label(flow)) << " endpoint [" << device_name << "] didn't become active after enabling it";
+  }
+
+  void mic_write_wasapi_t::restore_disabled_endpoints() {
+    if (reenabled_endpoints.empty()) {
+      return;
+    }
+
+    auto policy = make_policy_config();
+    for (const auto &device_id : reenabled_endpoints) {
+      if (policy && SUCCEEDED(policy->SetEndpointVisibility(device_id.c_str(), FALSE))) {
+        BOOST_LOG(info) << "Disabled the Steam microphone endpoint again";
+      } else {
+        BOOST_LOG(warning) << "Couldn't disable the Steam microphone endpoint again";
+      }
+    }
+    reenabled_endpoints.clear();
+  }
+
   void mic_write_wasapi_t::apply_pending_stream_reset() {
     {
       std::lock_guard lock(queue_mutex);
@@ -999,6 +1052,7 @@ namespace platf::audio {
 
     audio_client.reset();
     restore_device_formats();
+    restore_disabled_endpoints();
     device_enum.reset();
 
     if (opus_decoder != nullptr) {

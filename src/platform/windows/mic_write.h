@@ -52,7 +52,9 @@ namespace platf::audio {
 
   private:
     bool initialize_device();
-    bool find_target_device(EDataFlow flow, std::wstring &device_id, std::string &device_name);
+    bool find_target_device(EDataFlow flow, std::wstring &device_id, std::string &device_name, DWORD state_mask = DEVICE_STATE_ACTIVE);
+    void enable_disabled_target_device(EDataFlow flow);
+    void restore_disabled_endpoints();
     void render_loop();
     bool decode_next_packet();
     std::uint32_t infer_packet_duration_samples(std::uint32_t current_timestamp, std::uint32_t next_timestamp) const;
@@ -97,5 +99,6 @@ namespace platf::audio {
     bool playout_started = false;  ///< Render thread only.
     bool playout_wait_logged = false;  ///< Render thread only.
     std::vector<saved_device_format_t> saved_device_formats;
+    std::vector<std::wstring> reenabled_endpoints;  ///< Endpoints we enabled and must disable again.
   };
 }  // namespace platf::audio
