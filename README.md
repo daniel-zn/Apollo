@@ -29,6 +29,9 @@ What it adds on top of upstream Apollo:
     afterwards. It also puts back the default playback and recording devices after installing a Steam driver.
 - **Game audio without extra software.** If Steam left Steam Streaming Speakers disabled, Apollo enables it when a
   stream starts, so game audio always has a capture device.
+- **Redesigned web UI.** An Apple-style Liquid Glass look in light and dark mode: a floating glass navigation bar,
+  frosted cards, segmented tabs, system fonts and colors, and rounded controls. It's a theme over the existing
+  pages (`src_assets/common/assets/web/public/assets/css/apollo.css`), so nothing about how they work changed.
 - **Fixes to upstream:** `master` didn't compile (an AMF H.264 option read a missing field, and a pairing test
   used an old signature), and `gcm_t::decrypt` could report success when setting the IV failed.
 - **Build changes:**

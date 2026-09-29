@@ -3,14 +3,536 @@
     display: none;
 }
 
-[data-bs-theme=dark] .element {
-    color: var(--bs-primary-text-emphasis);
-    background-color: var(--bs-primary-bg-subtle);
+/*
+ * Every selector below starts with "html" so it outranks Bootstrap, which the
+ * build bundles into a stylesheet that loads after this one.
+ */
+/*
+ * Apollo web UI theme: Apple-style Liquid Glass on top of Bootstrap 5.
+ * Bootstrap is driven by --bs-* variables, so most of the look comes from the
+ * tokens below; the rest styles surfaces (cards, navbar, tabs) as frosted glass.
+ */
+
+html:root,
+html[data-bs-theme=light] {
+    --apollo-accent: #007aff;
+    --apollo-accent-rgb: 0, 122, 255;
+    --apollo-green: #34c759;
+    --apollo-red: #ff3b30;
+    --apollo-orange: #ff9500;
+    --apollo-yellow: #ffcc00;
+
+    --apollo-surface: rgba(255, 255, 255, 0.62);
+    --apollo-surface-strong: rgba(255, 255, 255, 0.82);
+    --apollo-surface-border: rgba(0, 0, 0, 0.07);
+    --apollo-fill: rgba(120, 120, 128, 0.12);
+    --apollo-fill-hover: rgba(120, 120, 128, 0.2);
+    --apollo-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 28px rgba(0, 0, 0, 0.08);
+    --apollo-backdrop:
+        radial-gradient(1200px 700px at 10% -10%, rgba(0, 122, 255, 0.16), transparent 60%),
+        radial-gradient(900px 600px at 100% 0%, rgba(175, 82, 222, 0.12), transparent 60%),
+        radial-gradient(900px 700px at 50% 110%, rgba(52, 199, 89, 0.10), transparent 60%),
+        #f2f2f7;
+
+    --bs-body-bg: #f2f2f7;
+    --bs-body-color: #1d1d1f;
+    --bs-secondary-color: rgba(60, 60, 67, 0.62);
+    --bs-border-color: rgba(0, 0, 0, 0.1);
+    --bs-primary: var(--apollo-accent);
+    --bs-primary-rgb: var(--apollo-accent-rgb);
+    --bs-link-color: var(--apollo-accent);
+    --bs-link-color-rgb: var(--apollo-accent-rgb);
+    --bs-link-hover-color: #0062cc;
 }
 
-@media (prefers-color-scheme: dark) {
-    .element {
-        color: var(--bs-primary-text-emphasis);
-        background-color: var(--bs-primary-bg-subtle);
+html[data-bs-theme=dark] {
+    --apollo-accent: #0a84ff;
+    --apollo-accent-rgb: 10, 132, 255;
+    --apollo-green: #30d158;
+    --apollo-red: #ff453a;
+    --apollo-orange: #ff9f0a;
+    --apollo-yellow: #ffd60a;
+
+    --apollo-surface: rgba(44, 44, 46, 0.55);
+    --apollo-surface-strong: rgba(44, 44, 46, 0.82);
+    --apollo-surface-border: rgba(255, 255, 255, 0.09);
+    --apollo-fill: rgba(118, 118, 128, 0.24);
+    --apollo-fill-hover: rgba(118, 118, 128, 0.34);
+    --apollo-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 36px rgba(0, 0, 0, 0.35);
+    --apollo-backdrop:
+        radial-gradient(1200px 700px at 10% -10%, rgba(10, 132, 255, 0.22), transparent 60%),
+        radial-gradient(900px 600px at 100% 0%, rgba(191, 90, 242, 0.16), transparent 60%),
+        radial-gradient(900px 700px at 50% 110%, rgba(48, 209, 88, 0.10), transparent 60%),
+        #000000;
+
+    --bs-body-bg: #000000;
+    --bs-body-color: #f5f5f7;
+    --bs-secondary-color: rgba(235, 235, 245, 0.6);
+    --bs-border-color: rgba(255, 255, 255, 0.12);
+    --bs-primary: var(--apollo-accent);
+    --bs-primary-rgb: var(--apollo-accent-rgb);
+    --bs-link-color: #409cff;
+    --bs-link-color-rgb: 64, 156, 255;
+    --bs-link-hover-color: #69b1ff;
+}
+
+/* Base */
+
+html {
+    min-height: 100%;
+}
+
+html body {
+    min-height: 100vh;
+    background: var(--apollo-backdrop);
+    background-attachment: fixed;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI",
+                 system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.005em;
+}
+
+html h1,
+html h2,
+html h3,
+html h4,
+html h5,
+html h6,
+html .h1,
+html .h2,
+html .h3,
+html .h4,
+html .h5,
+html .h6 {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI",
+                 system-ui, sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.022em;
+}
+
+html h1,
+html .h1 {
+    font-size: 2.1rem;
+    margin-top: 0.5rem;
+}
+
+html .form-text,
+html .text-muted {
+    color: var(--bs-secondary-color) !important;
+}
+
+/* Glass surfaces */
+
+html .card,
+html .modal-content,
+html .dropdown-menu,
+html .list-group,
+html .accordion-item {
+    background: var(--apollo-surface);
+    border: 1px solid var(--apollo-surface-border);
+    border-radius: 18px;
+    box-shadow: var(--apollo-shadow);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    backdrop-filter: blur(30px) saturate(180%);
+}
+
+html .card {
+    overflow: hidden;
+}
+
+html .card-group > .card {
+    border-radius: 18px !important;
+    margin: 0 6px;
+}
+
+html .card-header,
+html .card-footer {
+    background: transparent;
+    border-color: var(--apollo-surface-border);
+}
+
+html .modal-content,
+html .dropdown-menu {
+    background: var(--apollo-surface-strong);
+}
+
+html .modal-backdrop.show {
+    opacity: 0.35;
+}
+
+html .dropdown-menu {
+    border-radius: 12px;
+    padding: 6px;
+}
+
+html .dropdown-item {
+    border-radius: 7px;
+    padding: 6px 10px;
+}
+
+html .dropdown-item.active,
+html .dropdown-item:active {
+    background: var(--apollo-accent);
+}
+
+/* Navigation bar: a floating glass capsule */
+
+html .header.navbar {
+    position: sticky;
+    top: 12px;
+    z-index: 1020;
+    margin: 12px auto 8px;
+    max-width: min(1180px, calc(100% - 24px));
+    padding: 6px 10px;
+    border-radius: 22px;
+    background: var(--apollo-surface-strong) !important;
+    border: 1px solid var(--apollo-surface-border);
+    box-shadow: var(--apollo-shadow);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    backdrop-filter: blur(30px) saturate(180%);
+}
+
+html .header .navbar-brand img {
+    height: 30px;
+    width: auto;
+}
+
+/* The logo is white; darken it on the light navbar */
+html[data-bs-theme=light] .header .navbar-brand img {
+    filter: invert(1) brightness(0.25);
+}
+
+html .header .nav-link {
+    color: var(--bs-body-color) !important;
+    opacity: 0.75;
+    border-radius: 999px;
+    padding: 6px 12px !important;
+    margin: 0 1px;
+    font-weight: 500;
+    font-size: 0.94rem;
+    transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+html .header .nav-link:hover {
+    opacity: 1;
+    background: var(--apollo-fill);
+}
+
+html .header .nav-link.active {
+    opacity: 1;
+    color: var(--apollo-accent) !important;
+    background: rgba(var(--apollo-accent-rgb), 0.14);
+}
+
+html .header .navbar-toggler {
+    border: none;
+    border-radius: 10px;
+    background: var(--apollo-fill);
+}
+
+html .header .navbar-toggler:focus {
+    box-shadow: 0 0 0 3px rgba(var(--apollo-accent-rgb), 0.35);
+}
+
+/* Buttons: rounded with Apple system colors */
+
+html .btn {
+    border-radius: 10px;
+    font-weight: 500;
+    padding: 0.42rem 0.95rem;
+    border: none;
+    transition: filter 0.12s ease, transform 0.12s ease, background-color 0.12s ease;
+}
+
+html .btn:active {
+    transform: scale(0.97);
+}
+
+html .btn-sm {
+    border-radius: 8px;
+}
+
+html .btn-lg {
+    border-radius: 13px;
+}
+
+html .btn-primary {
+    --bs-btn-bg: var(--apollo-accent);
+    --bs-btn-hover-bg: var(--apollo-accent);
+    --bs-btn-active-bg: var(--apollo-accent);
+    --bs-btn-disabled-bg: var(--apollo-accent);
+}
+
+html .btn-success {
+    --bs-btn-bg: var(--apollo-green);
+    --bs-btn-hover-bg: var(--apollo-green);
+    --bs-btn-active-bg: var(--apollo-green);
+    --bs-btn-disabled-bg: var(--apollo-green);
+    --bs-btn-color: #fff;
+    --bs-btn-hover-color: #fff;
+}
+
+html .btn-danger {
+    --bs-btn-bg: var(--apollo-red);
+    --bs-btn-hover-bg: var(--apollo-red);
+    --bs-btn-active-bg: var(--apollo-red);
+    --bs-btn-disabled-bg: var(--apollo-red);
+}
+
+html .btn-warning {
+    --bs-btn-bg: var(--apollo-yellow);
+    --bs-btn-hover-bg: var(--apollo-yellow);
+    --bs-btn-active-bg: var(--apollo-yellow);
+    --bs-btn-disabled-bg: var(--apollo-yellow);
+    --bs-btn-color: #1d1d1f;
+    --bs-btn-hover-color: #1d1d1f;
+}
+
+html .btn-primary:hover,
+html .btn-success:hover,
+html .btn-danger:hover,
+html .btn-warning:hover {
+    filter: brightness(1.08);
+}
+
+html .btn-secondary,
+html .btn-light,
+html .btn-outline-secondary,
+html .btn-outline-primary {
+    --bs-btn-bg: var(--apollo-fill);
+    --bs-btn-hover-bg: var(--apollo-fill-hover);
+    --bs-btn-active-bg: var(--apollo-fill-hover);
+    --bs-btn-disabled-bg: var(--apollo-fill);
+    --bs-btn-color: var(--bs-body-color);
+    --bs-btn-hover-color: var(--bs-body-color);
+    --bs-btn-active-color: var(--bs-body-color);
+    --bs-btn-border-color: transparent;
+    --bs-btn-hover-border-color: transparent;
+}
+
+html .btn:focus-visible {
+    box-shadow: 0 0 0 3px rgba(var(--apollo-accent-rgb), 0.45);
+}
+
+/* Form controls */
+
+html .form-control,
+html .form-select,
+html .input-group-text {
+    border-radius: 10px;
+    border: 1px solid var(--apollo-surface-border);
+    background-color: var(--apollo-fill);
+    color: var(--bs-body-color);
+    transition: box-shadow 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+html .form-control:focus,
+html .form-select:focus {
+    background-color: var(--apollo-surface-strong);
+    border-color: rgba(var(--apollo-accent-rgb), 0.7);
+    box-shadow: 0 0 0 4px rgba(var(--apollo-accent-rgb), 0.25);
+    color: var(--bs-body-color);
+}
+
+html .input-group > :not(:first-child) {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}
+
+html .input-group > :not(:last-child) {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+html .form-control::placeholder {
+    opacity: 0.5;
+}
+
+html .form-label {
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+}
+
+html .form-check-input {
+    border-color: var(--bs-border-color);
+}
+
+html .form-check-input:checked {
+    background-color: var(--apollo-accent);
+    border-color: var(--apollo-accent);
+}
+
+html .form-check-input:focus {
+    box-shadow: 0 0 0 3px rgba(var(--apollo-accent-rgb), 0.3);
+}
+
+/* Switches look like iOS/macOS toggles */
+html .form-switch .form-check-input {
+    width: 2.4em;
+    height: 1.4em;
+    margin-top: 0;
+}
+
+html .form-switch .form-check-input:checked {
+    background-color: var(--apollo-green);
+    border-color: var(--apollo-green);
+}
+
+/* Tabs become a segmented control */
+
+html .nav-tabs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 3px;
+    border: none;
+    border-radius: 12px;
+    background: var(--apollo-fill);
+    margin-bottom: 14px;
+}
+
+html .nav-tabs .nav-link {
+    border: none !important;
+    border-radius: 9px;
+    color: var(--bs-body-color);
+    opacity: 0.8;
+    font-weight: 500;
+    padding: 5px 13px;
+    margin: 0;
+}
+
+html .nav-tabs .nav-link:hover {
+    opacity: 1;
+    background: var(--apollo-fill);
+}
+
+html .nav-tabs .nav-link.active {
+    opacity: 1;
+    color: var(--bs-body-color);
+    background: var(--apollo-surface-strong);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px var(--apollo-surface-border);
+}
+
+/* The configuration panel under the segmented control */
+html .config-page {
+    padding: 1.25em 1.4em;
+    border: 1px solid var(--apollo-surface-border);
+    border-radius: 18px;
+    background: var(--apollo-surface);
+    box-shadow: var(--apollo-shadow);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    backdrop-filter: blur(30px) saturate(180%);
+}
+
+html .nav-pills .nav-link {
+    border-radius: 999px;
+}
+
+html .nav-pills .nav-link.active {
+    background: var(--apollo-accent);
+}
+
+/* Tables */
+
+html .table {
+    --bs-table-bg: transparent;
+    --bs-table-border-color: var(--apollo-surface-border);
+    --bs-table-hover-bg: var(--apollo-fill);
+    margin-bottom: 0;
+}
+
+html .table > thead th {
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--bs-secondary-color);
+    border-bottom-width: 1px;
+}
+
+html .table > tbody > tr > td {
+    vertical-align: middle;
+    padding-top: 0.7rem;
+    padding-bottom: 0.7rem;
+}
+
+html .table > tbody > tr:last-child > td {
+    border-bottom: none;
+}
+
+/* Alerts: soft tinted panels */
+
+html .alert {
+    border-radius: 14px;
+    border: 1px solid transparent;
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+}
+
+html .alert-success {
+    background: rgba(52, 199, 89, 0.14);
+    border-color: rgba(52, 199, 89, 0.25);
+    color: var(--bs-body-color);
+}
+
+html .alert-danger {
+    background: rgba(255, 59, 48, 0.14);
+    border-color: rgba(255, 59, 48, 0.25);
+    color: var(--bs-body-color);
+}
+
+html .alert-warning {
+    background: rgba(255, 204, 0, 0.16);
+    border-color: rgba(255, 204, 0, 0.3);
+    color: var(--bs-body-color);
+}
+
+html .alert-info {
+    background: rgba(var(--apollo-accent-rgb), 0.12);
+    border-color: rgba(var(--apollo-accent-rgb), 0.25);
+    color: var(--bs-body-color);
+}
+
+/* Lists and badges */
+
+html .list-group-item {
+    background: transparent;
+    border-color: var(--apollo-surface-border);
+}
+
+html .badge {
+    border-radius: 999px;
+    font-weight: 600;
+    padding: 0.35em 0.7em;
+}
+
+/* Scrollbars that don't fight the glass */
+
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--apollo-fill-hover);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+    html .card,
+html .modal-content,
+html .dropdown-menu,
+html .list-group,
+html .header.navbar,
+html .alert {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+        background: var(--apollo-surface-strong) !important;
     }
 }
