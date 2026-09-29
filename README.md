@@ -7,9 +7,37 @@ Major features:
 - [x] Built-in Virtual Display with HDR support that matches the resolution/framerate config of your client automatically
 - [x] Permission management for clients
 - [x] Clipboard sync
-- [x] Windows remote microphone redirection through Steam Streaming Microphone with host-side debug visibility
 - [x] Commands for client connection/disconnection (checkout [Auto pause/resume games](https://github.com/ClassicOldSong/Apollo/wiki/Auto-pause-resume-games))
 - [x] Input only mode
+
+## About this fork
+
+> [!NOTE]
+> This is a personal fork (`daniel-zn/Apollo`, default branch `mic-passthrough`) made to pair with
+> [daniel-zn/moonlight-qt](https://github.com/daniel-zn/moonlight-qt). It doesn't follow upstream updates.
+
+What it adds on top of upstream Apollo:
+
+- **Microphone passthrough from the client (Windows).** Receives the microphone from
+  [daniel-zn/moonlight-qt](https://github.com/daniel-zn/moonlight-qt) and plays it into the Steam Streaming
+  Microphone, so host apps use `Microphone (Steam Streaming Microphone)` as their input. Turn it on with
+  `stream_mic = enabled`. Details are in [docs/remote_microphone.md](docs/remote_microphone.md).
+  - Built on [logabell's PR #1428](https://github.com/ClassicOldSong/Apollo/pull/1428), with the protocol and host
+    reworked: packets are AES-GCM authenticated with a replay window, one client uses the microphone at a time
+    (reconnects take over cleanly), and the session and audio device lifetimes are thread-safe.
+  - Apollo enables the Steam microphone endpoint while it's in use and restores the endpoint and its format
+    afterwards. It also puts back the default playback and recording devices after installing a Steam driver.
+- **Game audio without extra software.** If Steam left Steam Streaming Speakers disabled, Apollo enables it when a
+  stream starts, so game audio always has a capture device.
+- **Fixes to upstream:** `master` didn't compile (an AMF H.264 option read a missing field, and a pairing test
+  used an old signature), and `gcm_t::decrypt` could report success when setting the IV failed.
+- **Build changes:**
+  - `moonlight-common-c` (with the microphone protocol) is included directly instead of as a submodule.
+  - `.github/workflows/ci-windows.yml` builds, runs the microphone tests, and packages an installer and a portable
+    zip. These packages don't include the SudoVDA driver files, so update an existing Apollo install by replacing
+    its files rather than running the installer.
+
+The microphone protocol isn't compatible with other microphone forks (logabell's, ApolloVibe, moonlight-mic).
 
 ## Usage
 
@@ -35,14 +63,6 @@ Check out the [Wiki](https://github.com/ClassicOldSong/Apollo/wiki/Permission-Sy
 Apollo uses SudoVDA for virtual display. It features auto resolution and framerate matching for your Artemis/Moonlight clients. The virtual display is created upon the stream starts and removed once the app quits. **If you do not see a new virtual display added or removed when the stream starts or stops, there may be a driver misconfiguration, or another persistent virtual display might still be active.**
 
 The virtual display works just like any physically attached monitors with SudoVDA, there's completely no need for a super complicated solution to "fix" resolution configurations for your devices. Unlike all other solutions that reuses one identity or generate a random one each time for any virtual display sessions, **Apollo assigns a fixed identity for each Artemis/Moonlight client, so your display configuration will be automatically remembered and managed by Windows natively.**
-
-## About Remote Microphone Redirection
-
-This fork adds a working Windows remote microphone path for compatible Moonlight/Artemis clients.
-
-Apollo accepts the client's Opus microphone packets, decodes them on the host, and renders the audio into the Steam playback endpoint `Speakers (Steam Streaming Microphone)`. Host applications should then select `Microphone (Steam Streaming Microphone)` as their microphone source.
-
-Setup and implementation notes are documented in [docs/remote_microphone.md](docs/remote_microphone.md).
 
 ## Configuration for dual GPU laptops
 
