@@ -28,6 +28,7 @@ support this protocol version.
 The host advertises `a=x-apollo-mic:2` in its RTSP DESCRIBE response. A client that wants the microphone sets
 up `streamid=mic` and learns the UDP port from the SETUP response (the base port + 12, 48001 by default). If
 the host doesn't advertise support or the SETUP fails, the stream continues without a microphone.
+For streaming over the Internet, forward UDP 48001 as well: UPnP doesn't map it.
 
 Each UDP packet is:
 
@@ -56,9 +57,10 @@ The canonical definition is next to `MIC_SDP_ATTRIBUTE` in `third-party/moonligh
   next session that sends audio claims it. Switching streams clears the jitter buffer and resets the decoder.
 - **Lifetime:** the Steam microphone device opens when the first microphone session starts and closes when the
   last one ends. Opening, closing, and writing are serialized, so a packet can't reach a device being torn down.
-- **Disabled endpoints:** Steam (or the Sound settings) often leaves `Speakers (Steam Streaming Microphone)`
-  disabled while nothing is streaming, and a disabled endpoint can't be opened. Apollo enables it while the device
-  is open and disables it again afterwards.
+- **Disabled endpoints:** Steam (or the Sound settings) often leaves the Steam Streaming Microphone endpoints
+  (`Speakers (Steam Streaming Microphone)` and `Microphone (Steam Streaming Microphone)`) disabled while nothing
+  is streaming, and a disabled endpoint can't be opened. Apollo enables them while the device is open and
+  disables them again afterwards.
 - **Game audio:** Apollo streams game audio through Steam Streaming Speakers. If Steam left that endpoint
   disabled, Apollo enables it when a stream starts, and it treats a disabled Steam endpoint as installed instead
   of trying to reinstall the driver.
@@ -68,6 +70,9 @@ The canonical definition is next to `MIC_SDP_ATTRIBUTE` in `third-party/moonligh
 - **Driver install:** when `install_steam_audio_drivers` and `stream_mic` are both enabled, Apollo installs the
   Steam Streaming Microphone driver if it's missing. It saves the default playback and recording devices for
   every role before the install and puts them back afterwards.
+- **Latency:** the jitter buffer holds about 80 ms. After a gap longer than 3 packets (a network hiccup) it
+  skips ahead instead of concealing every missed packet, and if more than 10 packets pile up (the client's
+  clock running a little fast) it drops back to the prebuffer, so the delay can't creep up during a session.
 - **Device loss:** if Windows invalidates the Steam microphone endpoint mid-stream (for example, the audio
   service restarts), Apollo reopens it when the next packet arrives, at most every 2 seconds.
 
@@ -82,6 +87,7 @@ The canonical definition is next to `MIC_SDP_ATTRIBUTE` in `third-party/moonligh
 
 ## Debugging
 
-The Troubleshooting page shows packet, decode, and render counters, the active device formats, detected
-signal level, and recent microphone events. Packets from a client that isn't paired with the session show up
-as authentication failures.
+The Troubleshooting page shows the microphone pipeline's stages (session, packets, decode, playback device,
+render) with their state, plus recent microphone events. `/api/audio-debug` (signed in) returns the full
+state, including counters and device formats. Packets that fail authentication are reported only when they
+come from the address of a client with a running microphone stream; anything else is dropped silently.

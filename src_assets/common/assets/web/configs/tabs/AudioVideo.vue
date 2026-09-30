@@ -133,9 +133,6 @@ const validateFallbackMode = (event) => {
       <div class="form-text pre-wrap">
         {{ $tp('config.mic_device_desc') }}<br>
         <PlatformLayout :platform="platform">
-          <template #windows>
-            <pre>tools\audio-info.exe</pre>
-          </template>
           <template #linux>
             <pre>pactl list short sinks</pre>
             <pre>pw-cli ls Node | grep -i sink</pre>

@@ -47,6 +47,11 @@ namespace platf::audio {
     constexpr std::size_t max_queued_packets = 64;
     constexpr std::size_t target_prebuffer_packets = 4;
     constexpr std::size_t target_prebuffer_frames = default_packet_duration_samples * target_prebuffer_packets;
+    // Latency bounds for the packet queue. A gap longer than this is skipped rather than
+    // filled with concealment (which would add the whole gap as permanent delay), and a
+    // backlog longer than this (e.g. from clock drift) is dropped back to the prebuffer.
+    constexpr std::uint32_t max_concealed_gap_packets = 3;
+    constexpr std::size_t max_backlog_packets = 10;
 
     template<typename T>
     void co_task_free(T *ptr) {
@@ -638,7 +643,7 @@ namespace platf::audio {
 
     if (trimmed_packet_queue) {
       BOOST_LOG(debug) << "Trimmed queued microphone packets for [" << target_device_name << "] to keep jitter-buffer latency bounded";
-      ::audio::mic_debug_on_render_error(sequence_number, "Queued microphone packets grew too large, so older packets were dropped to keep latency bounded");
+      ::audio::mic_debug_on_packet_dropped(sequence_number, "Queued microphone packets grew too large, so older packets were dropped to keep latency bounded");
     }
 
     SetEvent(render_event.get());
@@ -710,6 +715,27 @@ namespace platf::audio {
         expected_sequence_number = pending_packets.begin()->first;
         expected_timestamp = pending_packets.begin()->second.timestamp;
         has_playout_cursor = true;
+      } else if (!pending_packets.empty()) {
+        // Keep the delay from creeping up: after a long gap (a network outage), jump to the
+        // next packet we have instead of concealing every missed one, and if packets pile up
+        // (the client's clock runs a little fast), drop back to the prebuffer target.
+        bool skip_ahead = false;
+        if (pending_packets.size() > max_backlog_packets) {
+          while (pending_packets.size() > target_prebuffer_packets) {
+            pending_packets.erase(pending_packets.begin());
+          }
+          skip_ahead = true;
+        } else if (pending_packets.find(expected_sequence_number) == pending_packets.end()) {
+          const auto gap = sequence_distance(pending_packets.begin()->first, expected_sequence_number);
+          skip_ahead = gap > max_concealed_gap_packets && gap < 0x80000000u;
+        }
+
+        if (skip_ahead) {
+          BOOST_LOG(debug) << "Skipping microphone playout ahead from sequence " << expected_sequence_number << " to "
+                           << pending_packets.begin()->first << " on [" << target_device_name << "] to keep latency bounded";
+          expected_sequence_number = pending_packets.begin()->first;
+          expected_timestamp = pending_packets.begin()->second.timestamp;
+        }
       }
 
       packet_sequence = expected_sequence_number;

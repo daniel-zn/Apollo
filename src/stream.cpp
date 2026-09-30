@@ -1440,6 +1440,25 @@ namespace stream {
           continue;
         }
 
+        // The session may have ended between collecting candidates and claiming. Its
+        // teardown already released ownership, so give it back rather than keep it.
+        bool still_running = false;
+        {
+          auto lg = ctx.control_server._sessions.lock();
+          for (auto *stream_session : *ctx.control_server._sessions) {
+            if (stream_session->audio.mic == mic &&
+                stream_session->state.load(std::memory_order_acquire) == session::state_e::RUNNING) {
+              still_running = true;
+              break;
+            }
+          }
+        }
+        if (!still_running) {
+          auto claimed = mic->generation;
+          mic_owner_generation.compare_exchange_strong(claimed, 0, std::memory_order_acq_rel);
+          continue;
+        }
+
         BOOST_LOG(info) << "Client microphone for ["sv << mic->device_name << "] took over the host microphone"sv;
       }
 
@@ -1981,7 +2000,11 @@ namespace stream {
     ctx.video_sock.close();
     ctx.audio_sock.close();
     if (ctx.mic_sock.is_open()) {
-      ctx.mic_sock.close();
+      // Shut down before closing: on Linux and macOS, closing alone doesn't wake the
+      // microphone thread blocked in receive_from, and joining it below would hang
+      boost::system::error_code ec;
+      ctx.mic_sock.shutdown(udp::socket::shutdown_both, ec);
+      ctx.mic_sock.close(ec);
     }
 
     video_packets.reset();

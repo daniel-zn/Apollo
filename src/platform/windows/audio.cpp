@@ -210,7 +210,7 @@ namespace {
     }
 
     BOOST_LOG(error) << "Windows microphone backend ["sv << backend_name
-                     << "] is not supported in Apollo Mic. Use [steam_streaming_microphone].";
+                     << "] is not supported. Use [steam_streaming_microphone].";
     return std::nullopt;
   }
 

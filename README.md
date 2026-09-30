@@ -35,7 +35,10 @@ What it adds on top of upstream Apollo:
 - **Fixes to upstream:** `master` didn't compile (an AMF H.264 option read a missing field, and a pairing test
   used an old signature), and `gcm_t::decrypt` could report success when setting the IV failed.
 - **Build changes:**
-  - `moonlight-common-c` (with the microphone protocol) is included directly instead of as a submodule.
+  - `moonlight-common-c` (with the microphone protocol) is included directly instead of as a submodule (its `enet`
+    is still a submodule).
+  - Boost 1.89 or newer from the system is accepted, instead of exactly 1.89.
+  - Internet streaming needs UDP 48001 forwarded for the microphone; UPnP doesn't map it.
   - `.github/workflows/ci-windows.yml` builds, runs the microphone tests, and packages an installer and a portable
     zip. These packages don't include the SudoVDA driver files, so update an existing Apollo install by replacing
     its files rather than running the installer.

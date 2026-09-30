@@ -859,8 +859,8 @@ editing the `conf` file in a text editor. Use the examples as reference.
         <td>Description</td>
         <td colspan="2">
             The host-side device used for redirected client microphone audio.
-            On Windows, Apollo currently auto-detects the Steam Streaming Microphone render endpoint and this value is typically left unset.
-            On Linux and macOS this should point at the virtual device Apollo writes into.
+            On Windows this is ignored: Apollo always uses the Steam Streaming Microphone.
+            On Linux this should point at the virtual device Apollo writes into. macOS hosts don't support microphone redirection.
         </td>
     </tr>
     <tr>
