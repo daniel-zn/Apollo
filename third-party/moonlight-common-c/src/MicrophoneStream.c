@@ -138,7 +138,9 @@ int LiSendMicrophoneOpusDataEx(const unsigned char* opusData, int opusLength, ui
                  (int)sizeof(MIC_PACKET_HEADER) + MIC_GCM_TAG_LENGTH + ciphertextLength,
                  0, (struct sockaddr*)&saddr, AddrLen);
     if (err < 0) {
-        return LastSocketError();
+        // Callers treat negative values as failure; the socket error codes are positive
+        int sockErr = LastSocketError();
+        return sockErr > 0 ? -sockErr : -1;
     }
 
     return err;
