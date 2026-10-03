@@ -8,7 +8,7 @@ permissions:
 on:
   push:
     branches:
-      - mic-passthrough
+      - main
   workflow_dispatch:
 
 concurrency:

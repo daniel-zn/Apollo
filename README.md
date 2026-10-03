@@ -13,7 +13,7 @@ Major features:
 ## About this fork
 
 > [!NOTE]
-> This is a personal fork (`daniel-zn/Apollo`, default branch `mic-passthrough`) made to pair with
+> This is a personal fork (`daniel-zn/Apollo`, default branch `main`) made to pair with
 > [daniel-zn/moonlight-qt](https://github.com/daniel-zn/moonlight-qt). It doesn't follow upstream updates.
 
 What it adds on top of upstream Apollo:
